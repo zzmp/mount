@@ -9,7 +9,7 @@ pub struct Mount<F> {
     route: String,
     matches: Regex,
     iron: Iron<F>,
-    terminator: Status
+    terminator: Option<Status>
 }
 
 impl<F> Mount<F> {
@@ -18,7 +18,7 @@ impl<F> Mount<F> {
             route: route.to_string(),
             iron: iron,
             matches: to_regex(route),
-            terminator: Unwind
+            terminator: Some(Unwind)
         }
     }
 
@@ -27,7 +27,16 @@ impl<F> Mount<F> {
             route: route.to_string(),
             iron: iron,
             matches: to_regex(route),
-            terminator: Continue
+            terminator: Some(Continue)
+        }
+    }
+
+    pub fn filter(route: &str, iron: Iron<F>) -> Mount<F> {
+        Mount {
+            route: route.to_string(),
+            iron: iron,
+            matches: to_regex(route),
+            terminator: None
         }
     }
 }
@@ -67,7 +76,8 @@ impl<F: Furnace> Middleware for Mount<F> {
         } // Previous borrow of req ends here.
 
         // So we can borrow it again here.
-        self.iron.furnace.forge(req, res, Some(alloy));
+        // We also take the status here, in case we are using conditional termination.
+        let status = self.iron.furnace.forge(req, res, Some(alloy));
 
         // And repair the damage here, for future middleware
         match req.request_uri {
@@ -79,7 +89,10 @@ impl<F: Furnace> Middleware for Mount<F> {
         }
 
         // We dispatched the request, so do our final action.
-        self.terminator
+        match self.terminator {
+            Some(status) => status,
+            None         => status
+        }
     }
 }
 
@@ -101,6 +114,17 @@ macro_rules! mount_terminal(
             let mut subserver: ServerT = Iron::new();
             subserver.smelt($midware);
             mount::Mount::new($route, subserver)
+        }
+    }
+)
+
+#[macro_export]
+macro_rules! mount_filter(
+    ($route:expr, $midware:expr) => {
+        {
+            let mut subserver: ServerT = Iron::new();
+            subserver.smelt($midware);
+            mount::Mount::filter($route, subserver)
         }
     }
 )
